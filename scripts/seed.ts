@@ -133,56 +133,60 @@ const SEED = [
   },
 ];
 
-function main() {
-  const db = getDb();
-  const insertArticle = db.prepare(`
-    INSERT OR REPLACE INTO articles
-    (id, url, title, source, source_url, raw_content, published_at, fetched_at, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'summarized')
-  `);
-  const insertSummary = db.prepare(`
-    INSERT OR REPLACE INTO summaries
-    (article_id, headline_id, headline_en, summary_id, summary_en,
-     why_matters_id, why_matters_en, sentiment, impact, category,
-     is_editor_pick, tags, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
+async function main() {
+  const db = await getDb();
   const now = Date.now();
   let count = 0;
 
   for (const s of SEED) {
     const id = crypto.createHash("sha1").update(s.url).digest("hex");
     const pub = now - s.minutesAgo * 60 * 1000;
-    insertArticle.run(
-      id,
-      s.url,
-      s.title,
-      s.source,
-      `https://${s.source.toLowerCase().replace(/ /g, "")}.com/rss`,
-      s.title,
-      pub,
-      now,
-    );
-    insertSummary.run(
-      id,
-      s.headline_id,
-      s.headline_en,
-      s.summary_id,
-      s.summary_en,
-      s.why_matters_id,
-      s.why_matters_en,
-      s.sentiment,
-      s.impact,
-      s.category,
-      s.impact >= 4 ? 1 : 0,
-      JSON.stringify(s.tags),
-      now,
-    );
+
+    await db.execute({
+      sql: `INSERT OR REPLACE INTO articles
+            (id, url, title, source, source_url, raw_content, published_at, fetched_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'summarized')`,
+      args: [
+        id,
+        s.url,
+        s.title,
+        s.source,
+        `https://${s.source.toLowerCase().replace(/ /g, "")}.com/rss`,
+        s.title,
+        pub,
+        now,
+      ],
+    });
+
+    await db.execute({
+      sql: `INSERT OR REPLACE INTO summaries
+            (article_id, headline_id, headline_en, summary_id, summary_en,
+             why_matters_id, why_matters_en, sentiment, impact, category,
+             is_editor_pick, tags, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        id,
+        s.headline_id,
+        s.headline_en,
+        s.summary_id,
+        s.summary_en,
+        s.why_matters_id,
+        s.why_matters_en,
+        s.sentiment,
+        s.impact,
+        s.category,
+        s.impact >= 4 ? 1 : 0,
+        JSON.stringify(s.tags),
+        now,
+      ],
+    });
     count++;
   }
 
   console.log(`Seeded ${count} articles.`);
 }
 
-main();
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

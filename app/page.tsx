@@ -19,12 +19,12 @@ export default async function Home({
       : "all"
   ) as ViewMode;
 
-  let articles: ReturnType<typeof getLatestArticles> = [];
+  let articles: Awaited<ReturnType<typeof getLatestArticles>> = [];
   let stats = { total: 0, last24h: 0 };
 
   try {
-    articles = getLatestArticles(40, view);
-    stats = getStats();
+    articles = await getLatestArticles(40, view);
+    stats = await getStats();
   } catch (e) {
     // db not initialized yet (build time without data)
     console.error("query error:", e);

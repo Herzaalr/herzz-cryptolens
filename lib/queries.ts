@@ -20,16 +20,15 @@ export type Article = {
 
 type ViewMode = "all" | "trending" | "picks";
 
-export function getLatestArticles(
+export async function getLatestArticles(
   limit = 30,
   mode: ViewMode = "all",
-): Article[] {
-  const db = getDb();
+): Promise<Article[]> {
+  const db = await getDb();
   let where = "";
   let order = "a.published_at DESC";
 
   if (mode === "trending") {
-    // last 24h, ordered by impact * recency
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     where = `AND a.published_at >= ${cutoff}`;
     order = "s.impact DESC, a.published_at DESC";
@@ -37,46 +36,61 @@ export function getLatestArticles(
     where = `AND s.is_editor_pick = 1`;
   }
 
-  const rows = db
-    .prepare(
-      `SELECT a.id, a.url, a.source, a.published_at,
-              s.headline_id, s.headline_en, s.summary_id, s.summary_en,
-              s.why_matters_id, s.why_matters_en,
-              s.sentiment, s.impact, s.category, s.is_editor_pick, s.tags
-       FROM summaries s
-       JOIN articles a ON a.id = s.article_id
-       WHERE a.status = 'summarized' ${where}
-       ORDER BY ${order}
-       LIMIT ?`,
-    )
-    .all(limit) as Array<Omit<Article, "tags"> & { tags: string }>;
+  const result = await db.execute({
+    sql: `SELECT a.id, a.url, a.source, a.published_at,
+            s.headline_id, s.headline_en, s.summary_id, s.summary_en,
+            s.why_matters_id, s.why_matters_en,
+            s.sentiment, s.impact, s.category, s.is_editor_pick, s.tags
+     FROM summaries s
+     JOIN articles a ON a.id = s.article_id
+     WHERE a.status = 'summarized' ${where}
+     ORDER BY ${order}
+     LIMIT ?`,
+    args: [limit],
+  });
 
-  return rows.map((r) => ({
-    ...r,
-    tags: (() => {
-      try {
-        return JSON.parse(r.tags || "[]");
-      } catch {
-        return [];
-      }
-    })(),
-  }));
+  return result.rows.map((r) => {
+    const tagsRaw = (r.tags as string | null) || "[]";
+    let tags: string[] = [];
+    try {
+      tags = JSON.parse(tagsRaw);
+    } catch {
+      tags = [];
+    }
+    return {
+      id: r.id as string,
+      url: r.url as string,
+      source: r.source as string,
+      published_at: Number(r.published_at),
+      headline_id: r.headline_id as string,
+      headline_en: r.headline_en as string,
+      summary_id: r.summary_id as string,
+      summary_en: r.summary_en as string,
+      why_matters_id: (r.why_matters_id as string | null) ?? null,
+      why_matters_en: (r.why_matters_en as string | null) ?? null,
+      sentiment: r.sentiment as Article["sentiment"],
+      impact: Number(r.impact),
+      category: r.category as string,
+      is_editor_pick: Number(r.is_editor_pick),
+      tags,
+    };
+  });
 }
 
-export function getStats() {
-  const db = getDb();
-  const total = (
-    db
-      .prepare("SELECT COUNT(*) as c FROM articles WHERE status = 'summarized'")
-      .get() as { c: number }
-  ).c;
-  const last24h = (
-    db
-      .prepare(
-        `SELECT COUNT(*) as c FROM articles
-         WHERE status = 'summarized' AND published_at >= ?`,
-      )
-      .get(Date.now() - 24 * 60 * 60 * 1000) as { c: number }
-  ).c;
+export async function getStats() {
+  const db = await getDb();
+  const totalRes = await db.execute(
+    "SELECT COUNT(*) as c FROM articles WHERE status = 'summarized'",
+  );
+  const total = Number(totalRes.rows[0]?.c ?? 0);
+
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const last24Res = await db.execute({
+    sql: `SELECT COUNT(*) as c FROM articles
+          WHERE status = 'summarized' AND published_at >= ?`,
+    args: [cutoff],
+  });
+  const last24h = Number(last24Res.rows[0]?.c ?? 0);
+
   return { total, last24h };
 }

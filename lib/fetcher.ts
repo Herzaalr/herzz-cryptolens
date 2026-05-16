@@ -21,12 +21,7 @@ function stripHtml(s: string): string {
 }
 
 export async function fetchAllSources() {
-  const db = getDb();
-  const insert = db.prepare(`
-    INSERT OR IGNORE INTO articles
-    (id, url, title, source, source_url, raw_content, published_at, fetched_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  const db = await getDb();
 
   let inserted = 0;
   let scanned = 0;
@@ -45,17 +40,13 @@ export async function fetchAllSources() {
           item.contentSnippet || item.content || item.summary || "",
         ).slice(0, 1500);
 
-        const result = insert.run(
-          id,
-          item.link,
-          item.title.trim(),
-          src.name,
-          src.url,
-          snippet,
-          pubMs,
-          now,
-        );
-        if (result.changes > 0) inserted++;
+        const result = await db.execute({
+          sql: `INSERT OR IGNORE INTO articles
+                (id, url, title, source, source_url, raw_content, published_at, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, item.link, item.title.trim(), src.name, src.url, snippet, pubMs, now],
+        });
+        if (result.rowsAffected > 0) inserted++;
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
